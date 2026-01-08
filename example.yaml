@@ -1,0 +1,87 @@
+# Example ESPHome configuration using the camera web server with placeholder
+
+substitutions:
+  device_name: esp32-cam
+  friendly_name: "ESP32 Camera"
+
+esphome:
+  name: ${device_name}
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+
+ota:
+
+# External component from this repository
+external_components:
+  - source: github://nickoe/esphome-esp32-camera-web-server-placeholder
+    components: [ esp32_camera_web_server_placeholder ]
+
+# Camera configuration
+esp32_camera:
+  id: my_camera
+  name: ${friendly_name}
+  
+  # Pin configuration for AI-Thinker ESP32-CAM
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO26
+    scl: GPIO27
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  
+  # Use an unused GPIO for software power control
+  power_down_pin: GPIO2
+  
+  # Camera settings
+  resolution: 640x480
+  jpeg_quality: 10
+  max_framerate: 10 fps
+  idle_framerate: 0.1 fps
+  vertical_flip: true
+  horizontal_mirror: true
+
+# Web server with placeholder support
+esp32_camera_web_server_placeholder:
+  port: 8080
+  mode: stream           # Can be 'stream' or 'snapshot'
+  placeholder_enabled: true  # Show gray placeholder when camera unavailable
+
+# Optional: Control camera power/reset
+switch:
+  - platform: gpio
+    pin: GPIO2
+    name: "${friendly_name} Software Reset"
+    id: camera_reset
+    restore_mode: ALWAYS_OFF
+    internal: true  # Hide from Home Assistant UI
+
+# Optional: Button to restart camera
+button:
+  - platform: template
+    name: "${friendly_name} Restart"
+    icon: "mdi:restart"
+    on_press:
+      - logger.log: "Restarting camera..."
+      - switch.turn_on: camera_reset
+      - delay: 100ms
+      - switch.turn_off: camera_reset
+      - delay: 1000ms
+      - logger.log: "Camera restarted"
+
+# Optional: Status LED
+status_led:
+  pin: GPIO33  # Built-in LED on AI-Thinker board
