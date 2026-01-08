@@ -1,287 +1,265 @@
-#ifdef USE_ESP32
-
-#include "camera_web_server_placeholder.h"
-#include "esphome/core/application.h"
-#include "esphome/core/hal.h"
-#include "esphome/core/helpers.h"
+#include "esphome.h"
 #include "esphome/core/log.h"
-#include "esphome/core/util.h"
-
-#include <cstdlib>
-#include <esp_http_server.h>
-#include <utility>
+#include "esphome/components/esp32_camera/esp32_camera.h"
+#include "esphome/components/web_server_base/web_server_base.h"
 
 namespace esphome {
-namespace esp32_camera_web_server_placeholder {
+namespace esp32_camera {
 
-static const int IMAGE_REQUEST_TIMEOUT = 1000;
-static const char *const TAG = "camera_web_server_placeholder";
+static const char *const TAG = "esp32_camera.web_server_placeholder";
 
-#define PART_BOUNDARY "123456789000000000000987654321"
-#define CONTENT_TYPE "image/jpeg"
-#define CONTENT_LENGTH "Content-Length"
-
-static const char *const STREAM_HEADER = "HTTP/1.0 200 OK\r\n"
-                                         "Access-Control-Allow-Origin: *\r\n"
-                                         "Connection: close\r\n"
-                                         "Content-Type: multipart/x-mixed-replace;boundary=" PART_BOUNDARY "\r\n"
-                                         "\r\n"
-                                         "--" PART_BOUNDARY "\r\n";
-static const char *const STREAM_PART = "Content-Type: " CONTENT_TYPE "\r\n" CONTENT_LENGTH ": %u\r\n\r\n";
-static const char *const STREAM_BOUNDARY = "\r\n"
-                                           "--" PART_BOUNDARY "\r\n";
-
-// Minimal 64x64 gray JPEG placeholder
-static const unsigned char PLACEHOLDER_JPEG[] = {
-  0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
-  0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08,
-  0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
-  0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20, 0x24, 0x2E, 0x27, 0x20,
-  0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29, 0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27,
-  0x39, 0x3D, 0x38, 0x32, 0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x40,
-  0x00, 0x40, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01,
-  0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04,
-  0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F,
-  0x00, 0xD2, 0xCF, 0x20, 0xFF, 0xD9
+// Placeholder JPEG image (1x1 pixel gray image)
+// This is a valid minimal JPEG file that can be served when camera is not available
+static const uint8_t PLACEHOLDER_JPEG[] = {
+  0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
+  0x00, 0x48, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x02, 0x02, 0x02, 0x03,
+  0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04, 0x06, 0x04, 0x04, 0x04, 0x04, 0x04, 0x08, 0x06,
+  0x06, 0x05, 0x06, 0x09, 0x08, 0x0A, 0x0A, 0x09, 0x08, 0x09, 0x09, 0x0A, 0x0C, 0x0F, 0x0C, 0x0A,
+  0x0B, 0x0E, 0x0B, 0x09, 0x09, 0x0D, 0x11, 0x0D, 0x0E, 0x0F, 0x10, 0x10, 0x11, 0x10, 0x0A, 0x0C,
+  0x12, 0x13, 0x12, 0x10, 0x13, 0x0F, 0x10, 0x10, 0x10, 0xFF, 0xC9, 0x00, 0x0B, 0x08, 0x00, 0x01,
+  0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xCC, 0x00, 0x06, 0x00, 0x10, 0x10, 0x05, 0xFF, 0xDA,
+  0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0xD2, 0xCF, 0x20, 0xFF, 0xD9
 };
-static const size_t PLACEHOLDER_JPEG_LEN = sizeof(PLACEHOLDER_JPEG);
 
-CameraWebServerPlaceholder::CameraWebServerPlaceholder() {}
+static const size_t PLACEHOLDER_JPEG_SIZE = sizeof(PLACEHOLDER_JPEG);
 
-CameraWebServerPlaceholder::~CameraWebServerPlaceholder() {}
+class CameraWebServerPlaceholder : public Component {
+ public:
+  CameraWebServerPlaceholder(ESP32Camera *camera) : camera_(camera) {}
 
-void CameraWebServerPlaceholder::setup() {
-  if (!camera::Camera::instance()) {
-    ESP_LOGW(TAG, "No camera found, will serve placeholder only");
-  }
-
-  this->semaphore_ = xSemaphoreCreateBinary();
-
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = this->port_;
-  config.ctrl_port = this->port_;
-  config.max_open_sockets = 1;
-  config.backlog_conn = 2;
-  config.lru_purge_enable = true;
-
-  if (httpd_start(&this->httpd_, &config) != ESP_OK) {
-    mark_failed();
-    return;
-  }
-
-  httpd_uri_t uri = {
-      .uri = "/",
-      .method = HTTP_GET,
-      .handler = [](struct httpd_req *req) { return ((CameraWebServerPlaceholder *) req->user_ctx)->handler_(req); },
-      .user_ctx = this};
-
-  httpd_register_uri_handler(this->httpd_, &uri);
-
-  if (camera::Camera::instance()) {
-    camera::Camera::instance()->add_listener(this);
-  }
-}
-
-void CameraWebServerPlaceholder::on_camera_image(const std::shared_ptr<camera::CameraImage> &image) {
-  if (this->running_ && image->was_requested_by(camera::WEB_REQUESTER)) {
-    this->image_ = image;
-    xSemaphoreGive(this->semaphore_);
-  }
-}
-
-void CameraWebServerPlaceholder::on_shutdown() {
-  this->running_ = false;
-  this->image_ = nullptr;
-  httpd_stop(this->httpd_);
-  this->httpd_ = nullptr;
-  vSemaphoreDelete(this->semaphore_);
-  this->semaphore_ = nullptr;
-}
-
-void CameraWebServerPlaceholder::dump_config() {
-  ESP_LOGCONFIG(TAG, "ESP32 Camera Web Server (Placeholder):");
-  ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
-  ESP_LOGCONFIG(TAG, "  Mode: %s", this->mode_ == STREAM ? "stream" : "snapshot");
-  ESP_LOGCONFIG(TAG, "  Placeholder: %s", this->placeholder_enabled_ ? "enabled" : "disabled");
-
-  if (this->is_failed()) {
-    ESP_LOGE(TAG, "  Setup Failed");
-  }
-}
-
-float CameraWebServerPlaceholder::get_setup_priority() const { return setup_priority::LATE; }
-
-void CameraWebServerPlaceholder::loop() {
-  if (!this->running_) {
-    this->image_ = nullptr;
-  }
-}
-
-std::shared_ptr<esphome::camera::CameraImage> CameraWebServerPlaceholder::wait_for_image_() {
-  std::shared_ptr<esphome::camera::CameraImage> image;
-  image.swap(this->image_);
-
-  if (!image) {
-    xSemaphoreTake(this->semaphore_, IMAGE_REQUEST_TIMEOUT / portTICK_PERIOD_MS);
-    image.swap(this->image_);
-  }
-
-  return image;
-}
-
-static esp_err_t httpd_send_all(httpd_req_t *r, const char *buf, size_t buf_len) {
-  int ret;
-  while (buf_len > 0) {
-    ret = httpd_send(r, buf, buf_len);
-    if (ret < 0) {
-      return ESP_FAIL;
-    }
-    buf += ret;
-    buf_len -= ret;
-  }
-  return ESP_OK;
-}
-
-esp_err_t CameraWebServerPlaceholder::send_placeholder_(struct httpd_req *req, bool is_stream) {
-  esp_err_t res = ESP_OK;
-  char part_buf[64];
-
-  if (is_stream) {
-    size_t hlen = snprintf(part_buf, 64, STREAM_PART, PLACEHOLDER_JPEG_LEN);
-    res = httpd_send_all(req, part_buf, hlen);
-    if (res != ESP_OK) return res;
-  }
-
-  res = httpd_send_all(req, (const char *)PLACEHOLDER_JPEG, PLACEHOLDER_JPEG_LEN);
-  
-  if (is_stream && res == ESP_OK) {
-    res = httpd_send_all(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-  }
-
-  return res;
-}
-
-esp_err_t CameraWebServerPlaceholder::handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_FAIL;
-
-  this->image_ = nullptr;
-  this->running_ = true;
-
-  switch (this->mode_) {
-    case STREAM:
-      res = this->streaming_handler_(req);
-      break;
-    case SNAPSHOT:
-      res = this->snapshot_handler_(req);
-      break;
-  }
-
-  this->running_ = false;
-  this->image_ = nullptr;
-  return res;
-}
-
-esp_err_t CameraWebServerPlaceholder::streaming_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_OK;
-  
-  res = httpd_send_all(req, STREAM_HEADER, strlen(STREAM_HEADER));
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "STREAM: failed to set HTTP header");
-    return res;
-  }
-
-  uint32_t last_frame = millis();
-  uint32_t frames = 0;
-  uint32_t placeholder_frames = 0;
-
-  if (camera::Camera::instance() && !camera::Camera::instance()->is_failed()) {
-    camera::Camera::instance()->start_stream(esphome::camera::WEB_REQUESTER);
-  }
-
-  while (res == ESP_OK && this->running_) {
-    auto image = this->wait_for_image_();
-
-    if (!image) {
-      if (this->placeholder_enabled_) {
-        ESP_LOGD(TAG, "STREAM: serving placeholder frame");
-        res = this->send_placeholder_(req, true);
-        placeholder_frames++;
-      } else {
-        ESP_LOGW(TAG, "STREAM: no frame available");
-        res = ESP_FAIL;
-      }
+  void setup() override {
+    ESP_LOGCONFIG(TAG, "Setting up ESP32 Camera Web Server with Placeholder...");
+    
+    // Register web server handlers
+    if (web_server_base::get_global_web_server_base() != nullptr) {
+      web_server_base::get_global_web_server_base()->init();
+      this->setup_handlers_();
     } else {
-      char part_buf[64];
-      size_t hlen = snprintf(part_buf, 64, STREAM_PART, image->get_data_length());
-      res = httpd_send_all(req, part_buf, hlen);
+      ESP_LOGE(TAG, "Web server base not found!");
+    }
+  }
+
+  float get_setup_priority() const override { return setup_priority::LATE; }
+
+ protected:
+  void setup_handlers_() {
+    auto *server = web_server_base::get_global_web_server_base()->get_server();
+    
+    // Snapshot endpoint
+    server->on("/snapshot.jpg", HTTP_GET, [this](AsyncWebServerRequest *request) {
+      this->handle_snapshot_(request);
+    });
+
+    // Stream endpoint
+    server->on("/stream", HTTP_GET, [this](AsyncWebServerRequest *request) {
+      this->handle_stream_(request);
+    });
+
+    // Main camera page
+    server->on("/camera", HTTP_GET, [this](AsyncWebServerRequest *request) {
+      this->handle_camera_page_(request);
+    });
+
+    ESP_LOGCONFIG(TAG, "Registered camera web server handlers");
+  }
+
+  void handle_snapshot_(AsyncWebServerRequest *request) {
+    if (this->camera_ == nullptr) {
+      ESP_LOGW(TAG, "Camera not available, serving placeholder");
+      this->serve_placeholder_(request);
+      return;
+    }
+
+    auto pic = this->camera_->get_image();
+    if (pic == nullptr || pic->get_data_length() == 0) {
+      ESP_LOGW(TAG, "Failed to capture image, serving placeholder");
+      this->serve_placeholder_(request);
+      return;
+    }
+
+    AsyncWebServerResponse *response = request->beginResponse_P(
+        200, "image/jpeg", pic->get_data_buffer(), pic->get_data_length());
+    response->addHeader("Content-Disposition", "inline; filename=snapshot.jpg");
+    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    request->send(response);
+  }
+
+  void handle_stream_(AsyncWebServerRequest *request) {
+    if (this->camera_ == nullptr) {
+      request->send(503, "text/plain", "Camera not available");
+      return;
+    }
+
+    AsyncWebServerResponse *response = request->beginChunkedResponse(
+        "multipart/x-mixed-replace; boundary=frame",
+        [this](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+          return this->stream_handler_(buffer, maxLen, index);
+        });
+    
+    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    request->send(response);
+  }
+
+  size_t stream_handler_(uint8_t *buffer, size_t maxLen, size_t index) {
+    if (this->camera_ == nullptr) {
+      return 0;
+    }
+
+    auto pic = this->camera_->get_image();
+    if (pic == nullptr || pic->get_data_length() == 0) {
+      // Serve placeholder in stream
+      static const char *header = "--frame\r\nContent-Type: image/jpeg\r\n\r\n";
+      static const char *footer = "\r\n";
       
-      if (res == ESP_OK) {
-        res = httpd_send_all(req, (const char *)image->get_data_buffer(), image->get_data_length());
+      size_t header_len = strlen(header);
+      size_t footer_len = strlen(footer);
+      size_t total_len = header_len + PLACEHOLDER_JPEG_SIZE + footer_len;
+      
+      if (maxLen < total_len) {
+        return 0;
       }
-      if (res == ESP_OK) {
-        res = httpd_send_all(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-      }
-      frames++;
+      
+      memcpy(buffer, header, header_len);
+      memcpy(buffer + header_len, PLACEHOLDER_JPEG, PLACEHOLDER_JPEG_SIZE);
+      memcpy(buffer + header_len + PLACEHOLDER_JPEG_SIZE, footer, footer_len);
+      
+      delay(100); // Small delay for streaming
+      return total_len;
     }
 
-    if (res == ESP_OK) {
-      int64_t frame_time = millis() - last_frame;
-      last_frame = millis();
-      ESP_LOGV(TAG, "MJPG: %" PRIu32 "ms (%.1ffps)", (uint32_t)frame_time, 1000.0 / (uint32_t)frame_time);
+    // Build multipart frame
+    String frame = "--frame\r\nContent-Type: image/jpeg\r\n\r\n";
+    size_t frame_len = frame.length();
+    size_t pic_len = pic->get_data_length();
+    size_t footer_len = 2; // "\r\n"
+    
+    size_t total_len = frame_len + pic_len + footer_len;
+    
+    if (maxLen < total_len) {
+      return 0;
     }
-
-    delay(100);
+    
+    memcpy(buffer, frame.c_str(), frame_len);
+    memcpy(buffer + frame_len, pic->get_data_buffer(), pic_len);
+    memcpy(buffer + frame_len + pic_len, "\r\n", footer_len);
+    
+    return total_len;
   }
 
-  if (camera::Camera::instance() && !camera::Camera::instance()->is_failed()) {
-    camera::Camera::instance()->stop_stream(esphome::camera::WEB_REQUESTER);
-  }
+  void handle_camera_page_(AsyncWebServerRequest *request) {
+    const char html[] = R"html(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Camera</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f0f0f0;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+    }
+    .buttons {
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .mode-toggle {
+      background-color: #2196F3;
+    }
+    .mode-toggle:hover {
+      background-color: #0b7dda;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ESP32 Camera Web Server</h1>
+    <img id="camera-img" src="/snapshot.jpg" alt="Camera Feed">
+    <div class="buttons">
+      <button onclick="toggleMode()">Toggle Stream/Snapshot</button>
+      <button onclick="captureSnapshot()">Refresh Snapshot</button>
+    </div>
+  </div>
+  <script>
+    let streamMode = false;
+    let refreshInterval;
 
-  ESP_LOGI(TAG, "STREAM: closed. Real frames: %" PRIu32 ", Placeholder frames: %" PRIu32, frames, placeholder_frames);
-
-  return res;
-}
-
-esp_err_t CameraWebServerPlaceholder::snapshot_handler_(struct httpd_req *req) {
-  esp_err_t res = ESP_OK;
-
-  if (camera::Camera::instance() && !camera::Camera::instance()->is_failed()) {
-    camera::Camera::instance()->request_image(esphome::camera::WEB_REQUESTER);
-  }
-
-  auto image = this->wait_for_image_();
-
-  if (!image) {
-    if (this->placeholder_enabled_) {
-      ESP_LOGD(TAG, "SNAPSHOT: serving placeholder");
-      res = httpd_resp_set_type(req, CONTENT_TYPE);
-      if (res == ESP_OK) {
-        httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=placeholder.jpg");
-        res = httpd_resp_send(req, (const char *)PLACEHOLDER_JPEG, PLACEHOLDER_JPEG_LEN);
+    function toggleMode() {
+      streamMode = !streamMode;
+      const img = document.getElementById('camera-img');
+      
+      if (streamMode) {
+        clearInterval(refreshInterval);
+        img.src = '/stream';
+      } else {
+        img.src = '/snapshot.jpg?' + new Date().getTime();
+        startAutoRefresh();
       }
-    } else {
-      ESP_LOGW(TAG, "SNAPSHOT: no frame available");
-      httpd_resp_send_500(req);
-      res = ESP_FAIL;
     }
-    return res;
+
+    function captureSnapshot() {
+      const img = document.getElementById('camera-img');
+      img.src = '/snapshot.jpg?' + new Date().getTime();
+    }
+
+    function startAutoRefresh() {
+      refreshInterval = setInterval(() => {
+        if (!streamMode) {
+          captureSnapshot();
+        }
+      }, 1000);
+    }
+
+    startAutoRefresh();
+  </script>
+</body>
+</html>
+)html";
+
+    request->send(200, "text/html", html);
   }
 
-  res = httpd_resp_set_type(req, CONTENT_TYPE);
-  if (res != ESP_OK) {
-    ESP_LOGW(TAG, "SNAPSHOT: failed to set HTTP response type");
-    return res;
+  void serve_placeholder_(AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse_P(
+        200, "image/jpeg", PLACEHOLDER_JPEG, PLACEHOLDER_JPEG_SIZE);
+    response->addHeader("Content-Disposition", "inline; filename=placeholder.jpg");
+    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    request->send(response);
   }
 
-  httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  ESP32Camera *camera_;
+};
 
-  if (res == ESP_OK) {
-    res = httpd_resp_send(req, (const char *)image->get_data_buffer(), image->get_data_length());
-  }
-  return res;
-}
-
-}  // namespace esp32_camera_web_server_placeholder
+}  // namespace esp32_camera
 }  // namespace esphome
-
-#endif  // USE_ESP32
