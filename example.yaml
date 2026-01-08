@@ -27,7 +27,7 @@ wifi:
 
 # Load the external component
 external_components:
-  - source: github://nickoe/esphome-esp32-camera-web-server-placeholder
+  - source: github://nickoe/esphome-esp32-camera-web-server-placeholder@master
     components: [ esp32_camera_web_server_placeholder ]
 
 # Camera configuration (AI-Thinker model)
