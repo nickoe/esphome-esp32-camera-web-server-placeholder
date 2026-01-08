@@ -14,7 +14,7 @@
 namespace esphome {
 namespace esp32_camera_web_server_placeholder {
 
-static const int IMAGE_REQUEST_TIMEOUT = 1000;  // Reduced to 1 second for placeholder
+static const int IMAGE_REQUEST_TIMEOUT = 1000;
 static const char *const TAG = "camera_web_server_placeholder";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
@@ -30,61 +30,6 @@ static const char *const STREAM_HEADER = "HTTP/1.0 200 OK\r\n"
 static const char *const STREAM_PART = "Content-Type: " CONTENT_TYPE "\r\n" CONTENT_LENGTH ": %u\r\n\r\n";
 static const char *const STREAM_BOUNDARY = "\r\n"
                                            "--" PART_BOUNDARY "\r\n";
-
-// =============================================================================
-// PLACEHOLDER JPEG IMAGE
-// =============================================================================
-// This is a minimal 1x1 pixel gray JPEG image shown when camera is unavailable.
-//
-// To create your own placeholder image:
-// 
-// METHOD 1: Using xxd (Linux/Mac/WSL)
-// ---------------------------------
-// 1. Create your image (PNG, JPEG, etc.) - recommended: 320x240 or smaller
-// 2. Convert to JPEG if needed:
-//    convert placeholder.png -quality 80 placeholder.jpg
-// 3. Convert to C array:
-//    xxd -i placeholder.jpg > placeholder.h
-// 4. Copy the array contents here
-//
-// METHOD 2: Using Python
-// ---------------------------------
-// 1. Create your image file
-// 2. Run this Python script:
-//
-//    import sys
-//    
-//    def image_to_cpp_array(image_path):
-//        with open(image_path, 'rb') as f:
-//            data = f.read()
-//        
-//        print("static const uint8_t PLACEHOLDER_JPEG[] = {")
-//        for i in range(0, len(data), 12):
-//            chunk = data[i:i+12]
-//            hex_values = ', '.join(f'0x{b:02X}' for b in chunk)
-//            print(f"  {hex_values},")
-//        print("};")
-//        print(f"\nstatic const size_t PLACEHOLDER_JPEG_SIZE = {len(data)};")
-//    
-//    if __name__ == "__main__":
-//        image_to_cpp_array(sys.argv[1])
-//
-// 3. Run: python img_to_array.py placeholder.jpg
-//
-// METHOD 3: Online converter
-// ---------------------------------
-// 1. Use a tool like: https://notisrac.github.io/FileToCArray/
-// 2. Upload your JPEG file
-// 3. Copy the generated array
-//
-// Tips:
-// - Keep the image small (< 50KB) to save flash memory
-// - Use low JPEG quality (60-80) for smaller size
-// - Consider a simple icon or text like "Camera Offline"
-// - Test that it's a valid JPEG by opening in an image viewer first
-//
-// Current placeholder: 1x1 gray pixel (~150 bytes)
-// =============================================================================
 
 static const uint8_t PLACEHOLDER_JPEG[] = {
   0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
@@ -106,7 +51,6 @@ CameraWebServerPlaceholder::~CameraWebServerPlaceholder() {}
 void CameraWebServerPlaceholder::setup() {
   if (!camera::Camera::instance()) {
     ESP_LOGW(TAG, "No camera found, will serve placeholder only");
-    // Don't mark as failed - we'll serve placeholder
   }
 
   this->semaphore_ = xSemaphoreCreateBinary();
@@ -114,9 +58,13 @@ void CameraWebServerPlaceholder::setup() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = this->port_;
   config.ctrl_port = this->port_;
-  config.max_open_sockets = 1;
+  config.max_open_sockets = 2;
   config.backlog_conn = 2;
   config.lru_purge_enable = true;
+  config.recv_wait_timeout = 5;
+  config.send_wait_timeout = 5;
+  config.close_fn = nullptr;
+  config.linger_timeout = 0;
 
   if (httpd_start(&this->httpd_, &config) != ESP_OK) {
     mark_failed();
@@ -256,7 +204,6 @@ esp_err_t CameraWebServerPlaceholder::streaming_handler_(struct httpd_req *req) 
     auto image = this->wait_for_image_();
 
     if (!image) {
-      // No camera image available
       if (this->placeholder_enabled_) {
         ESP_LOGD(TAG, "STREAM: serving placeholder frame");
         res = this->send_placeholder_(req, true);
@@ -266,7 +213,6 @@ esp_err_t CameraWebServerPlaceholder::streaming_handler_(struct httpd_req *req) 
         res = ESP_FAIL;
       }
     } else {
-      // Send real camera image
       char part_buf[64];
       size_t hlen = snprintf(part_buf, 64, STREAM_PART, image->get_data_length());
       res = httpd_send_all(req, part_buf, hlen);
@@ -286,8 +232,7 @@ esp_err_t CameraWebServerPlaceholder::streaming_handler_(struct httpd_req *req) 
       ESP_LOGV(TAG, "MJPG: %" PRIu32 "ms (%.1ffps)", (uint32_t)frame_time, 1000.0 / (uint32_t)frame_time);
     }
 
-    // Delay between frames
-    delay(100);  // 10fps max for placeholder
+    delay(100);
   }
 
   if (camera::Camera::instance() && !camera::Camera::instance()->is_failed()) {
@@ -314,6 +259,7 @@ esp_err_t CameraWebServerPlaceholder::snapshot_handler_(struct httpd_req *req) {
       res = httpd_resp_set_type(req, CONTENT_TYPE);
       if (res == ESP_OK) {
         httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=placeholder.jpg");
+        httpd_resp_set_hdr(req, "Connection", "close");
         res = httpd_resp_send(req, (const char *)PLACEHOLDER_JPEG, PLACEHOLDER_JPEG_SIZE);
       }
     } else {
@@ -331,6 +277,7 @@ esp_err_t CameraWebServerPlaceholder::snapshot_handler_(struct httpd_req *req) {
   }
 
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  httpd_resp_set_hdr(req, "Connection", "close");
 
   if (res == ESP_OK) {
     res = httpd_resp_send(req, (const char *)image->get_data_buffer(), image->get_data_length());
@@ -338,7 +285,7 @@ esp_err_t CameraWebServerPlaceholder::snapshot_handler_(struct httpd_req *req) {
   return res;
 }
 
-}  // namespace esp32_camera_web_server_placeholder
-}  // namespace esphome
+}
+}
 
-#endif  // USE_ESP32
+#endif
