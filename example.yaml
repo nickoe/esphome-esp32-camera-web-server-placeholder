@@ -1,17 +1,17 @@
 # Example ESPHome configuration using the camera web server with placeholder
 
 substitutions:
-  device_name: esp32-cam
-  friendly_name: "ESP32 Camera"
+  name: esp32-cam-placeholder-example
+  friendly_name: ESP32 Camera with Placeholder
 
 esphome:
-  name: ${device_name}
-  platform: ESP32
-  board: esp32dev
+  name: ${name}
+  friendly_name: ${friendly_name}
 
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
 
 # Enable logging
 logger:
@@ -21,17 +21,19 @@ api:
 
 ota:
 
-# External component from this repository
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Load the external component
 external_components:
   - source: github://nickoe/esphome-esp32-camera-web-server-placeholder
     components: [ esp32_camera_web_server_placeholder ]
 
-# Camera configuration
+# Camera configuration (AI-Thinker model)
 esp32_camera:
   id: my_camera
-  name: ${friendly_name}
-  
-  # Pin configuration for AI-Thinker ESP32-CAM
+  name: Camera
   external_clock:
     pin: GPIO0
     frequency: 20MHz
@@ -42,46 +44,30 @@ esp32_camera:
   vsync_pin: GPIO25
   href_pin: GPIO23
   pixel_clock_pin: GPIO22
-  
-  # Use an unused GPIO for software power control
-  power_down_pin: GPIO2
-  
-  # Camera settings
-  resolution: 640x480
+  power_down_pin: GPIO32
+  resolution: 800x600
   jpeg_quality: 10
-  max_framerate: 10 fps
-  idle_framerate: 0.1 fps
-  vertical_flip: true
-  horizontal_mirror: true
 
 # Web server with placeholder support
 esp32_camera_web_server_placeholder:
   port: 8080
-  mode: stream           # Can be 'stream' or 'snapshot'
-  placeholder_enabled: true  # Show gray placeholder when camera unavailable
+  mode: stream
+  placeholder_enabled: true
 
-# Optional: Control camera power/reset
+# Optional: Add controls for camera power management
 switch:
   - platform: gpio
-    pin: GPIO2
-    name: "${friendly_name} Software Reset"
-    id: camera_reset
+    pin: GPIO32
+    name: "Camera Software Power"
+    id: camera_power
     restore_mode: ALWAYS_OFF
-    internal: true  # Hide from Home Assistant UI
+    internal: true
 
-# Optional: Button to restart camera
 button:
   - platform: template
-    name: "${friendly_name} Restart"
-    icon: "mdi:restart"
+    name: "Restart Camera"
     on_press:
-      - logger.log: "Restarting camera..."
-      - switch.turn_on: camera_reset
+      - switch.turn_on: camera_power
       - delay: 100ms
-      - switch.turn_off: camera_reset
-      - delay: 1000ms
-      - logger.log: "Camera restarted"
-
-# Optional: Status LED
-status_led:
-  pin: GPIO33  # Built-in LED on AI-Thinker board
+      - switch.turn_off: camera_power
+      - logger.log: "Camera reinitialized"
