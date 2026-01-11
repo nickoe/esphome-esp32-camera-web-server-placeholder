@@ -58,7 +58,7 @@ namespace esp32_camera_web_server_placeholder {
 // - Consider a simple icon or text like "Camera Offline"
 // - Test that it's a valid JPEG by opening in an image viewer first
 //
-// Current placeholder: 1x1 gray pixel (~150 bytes)
+// Current placeholder: 240x320 px image with text
 // =============================================================================
 
 static const uint8_t PLACEHOLDER_JPEG[] = {
