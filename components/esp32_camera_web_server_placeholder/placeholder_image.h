@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef USE_ESP32
+
 #include <cstdint>
 #include <cstddef>
 
@@ -311,3 +313,5 @@ static const size_t PLACEHOLDER_JPEG_SIZE = sizeof(PLACEHOLDER_JPEG);
 
 }  // namespace esp32_camera_web_server_placeholder
 }  // namespace esphome
+
+#endif  // USE_ESP32
